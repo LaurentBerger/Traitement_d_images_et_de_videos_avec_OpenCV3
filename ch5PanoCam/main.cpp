@@ -213,21 +213,22 @@ int main (int argc,char **argv)
         else
         {
             x = LireImages(&pCamera);
-            for (int j = 0; j<v.size(); j++)
-            {
-                if (v[j].isOpened())
-                {
-                    int k = j;
-                    if (j == 0)
-                        k = 0;
-                    else
-                        k = j - 1;
-                    Rect r(k % 2 * x[k].cols, k / 2 * x[k].rows, x[j].cols, x[j].rows);
-                    x[j].copyTo(frame(r));
-                }
-            }
-        }
-        if (modeAffichage)
+			if (x.size()==v.size())
+				for (int j = 0; j<v.size(); j++)
+				{
+					if (v[j].isOpened())
+					{
+						int k = j;
+						if (j == 0)
+							k = 0;
+						else
+							k = j - 1;
+						Rect r(k % 2 * x[k].cols, k / 2 * x[k].rows, x[j].cols, x[j].rows);
+						x[j].copyTo(frame(r));
+					}
+				}
+			}
+        if (modeAffichage && x.size()==v.size())
         {
             for (int i = 0; i < v.size(); i++)
             {
@@ -419,7 +420,7 @@ int InitPanorama(vector<Mat> matUSB, ParamPano &pp)
 Mat ComposerPanorama(vector<Mat> matUSB, ParamPano &pp)
 {
     int nbImages= pp.indices.size();
-    if (pp.algoCorrectExpo == NULL || pp.composition==NULL)
+    if (pp.algoCorrectExpo == nullptr || pp.composition==nullptr)
     {
         vector<UMat> imagesProjetees(nbImages);
 
@@ -558,10 +559,10 @@ vector<VideoCapture> RechercheCamera()
 {
     vector<VideoCapture> v;
 
-    for (int i = 0; i<NBCAMERA; i++)
+    for (int i = 2; i<NBCAMERA; i++)
     {
         VideoCapture video;
-        video.open(i);
+        video.open(i+CAP_DSHOW);
         if (!video.isOpened())
         {
             cout << " cannot openned camera : " << i << endl;
@@ -571,7 +572,9 @@ vector<VideoCapture> RechercheCamera()
             video.set(CAP_PROP_FRAME_WIDTH, 640);
             video.set(CAP_PROP_FRAME_HEIGHT, 480);
             v.push_back(video);
-        }
+			cout << "Camera : "<<i<< "-> " << video.get(CAP_PROP_FRAME_HEIGHT);
+			cout << "  " << video.get(CAP_PROP_FRAME_WIDTH) << endl;
+		}
     }
     return v;
 }
@@ -632,7 +635,15 @@ vector<Mat> LireImages(vector<ParamCamera> *pc)
     for (int i = 0; i < pc->size(); i++)
     {
         mtxTimeStamp[i].lock();
-        (*pc)[i].derniereImage.copyTo(x[i]);
+		if (!(*pc)[i].derniereImage.empty())
+			(*pc)[i].derniereImage.copyTo(x[i]);
+		else
+		{
+
+			x.clear();
+			mtxTimeStamp[i].unlock();
+			return x;
+		}
         mtxTimeStamp[i].unlock();
     }
     return x;
@@ -683,22 +694,29 @@ void GestionCmdCamera(ParamCamera *pc)
 
 void AcquisitionVideo(ParamCamera *pc)
 {
+	cout << "Running thread " << pc->index << endl;
     int64  tpsFrame = 0, tpsFramePre;
     Mat frame;
     *(pc->v) >> frame;
-    for (;;)
+	if (frame.empty())
+	{
+		cout << "Image vide index ->"<<pc->index<<endl;
+	}
+	for (;;)
     {
         tpsFramePre = getTickCount();
         mtxTimeStamp[pc->index].lock();
         *(pc->v) >> frame;
         pc->derniereImage = frame;
+		if (frame.empty())
+			cout << "Image vide";
         tpsFrame = getTickCount();
         GestionCmdCamera(pc);
         if (stopThread)
             break;
         if (pc->captureImage)
         {
-            if (tpsFrame >= pc->tpsCapture)
+            if (!frame.empty() && tpsFrame >= pc->tpsCapture)
             {
                 pc->captureImage = 0;
                 frame.copyTo(pc->imAcq);
